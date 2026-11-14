@@ -1,22 +1,29 @@
-# Autoformer for Time Series Forecasting
+# Covariate-Aware Time-Series Forecasting
 
-**AI651 Deep Learning for Space, Time and Graphs, LUMS, Fall 2026. Programming Assignment 1.**
-Ahmed Jawed (25280040).
+PyTorch implementations of Autoformer forecasting and sensor time-series models, with known-future covariates, chronological backtesting, reproducible experiment records and baseline comparisons.
 
-Two tasks, one theme: when does a sequence model beat a well-chosen inductive bias, and how do you
-get known future information into a Transformer without the architecture smoothing it away.
+Developed by [Ahmed Jawed](https://github.com/ahmedjawedaj).
 
-- **Task 1.** A controlled study on simulated vibration sensors: ridge baselines, raw attention, delay
-  mixing and series decomposition, combined in a 2x2 design, deployed against a held-out sensor.
-- **Task 2.** A from-scratch Autoformer on an anonymised real-world hourly series with a 168-step
-  horizon, scored on a public leaderboard. **Final entry: RMSE 62.95, rank 1 at submission,**
-  with 53.7k parameters and 20 epochs.
+## Engineering focus
+
+- **Model architecture:** series decomposition, Auto-Correlation and a direct horizon-covariate prediction head.
+- **Data pipelines:** sliding windows, chronological splits and separate handling of historical observations and known-future inputs.
+- **Experiment management:** resumable training, multiple seeds, controlled ablations and saved configuration/result records.
+- **Evaluation:** horizon-level errors, held-out sensor transfer, paired historical-window comparisons and explicit reporting of unsuccessful variants.
+- **Forecast export:** ensemble reconstruction, parameter-count checks and recorded training-epoch accounting.
+
+## Forecasting studies
+
+- **Sensor generalization.** A controlled study on simulated vibration sensors: ridge baselines, raw attention, delay
+  mixing and series decomposition, combined in a 2x2 design and evaluated on a held-out simulated sensor.
+- **Covariate-aware forecasting.** A from-scratch Autoformer on an anonymised real-world hourly series with a 168-step
+  horizon. The recorded course-benchmark result is **RMSE 62.95**, with 53.7k aggregate ensemble parameters and 20 aggregate training epochs.
 
 Full write-up: [`report/main.pdf`](report/main.pdf).
 
 ---
 
-## Task 2 at a glance
+## Covariate-aware Autoformer forecasting
 
 | Attempt | Model | P | E | Leaderboard RMSE | sMAPE |
 |---|---|---:|---:|---:|---:|
@@ -24,8 +31,7 @@ Full write-up: [`report/main.pdf`](report/main.pdf).
 | 2 | + nonlinear covariate encoder (per-step MLP in the embedding) | 38,979 | 16 | 81.93 | 59.6 |
 | **3** | **+ direct per-hour covariate head, no anchoring** | **53,670** | **20** | **62.95** | **49.6** |
 
-Each attempt is a 3-seed ensemble, chosen on a chronological validation split before it was submitted.
-The leaderboard was used for confirmation only (5 attempts allowed, 3 used).
+Each submitted attempt is a three-seed ensemble. Development comparisons use chronological historical splits. Final-stage training uses the expanded fit region and later observed history for early stopping, as documented in the [pipeline notes](Question%202%20-%20Leaderboard/README.md). Three of the five permitted course-leaderboard submissions were used.
 
 <p align="center">
 <img src="docs/q2_final_forecast.png" width="48%"> <img src="docs/q2_horizon.png" width="48%">
@@ -37,7 +43,7 @@ The leaderboard was used for confirmation only (5 attempts allowed, 3 used).
 1. **Where the covariates enter matters more than whether they are used.** Ten optional external
    variables are given for the forecast horizon as well as the past. As past-only encoder inputs they
    did nothing (RMSE 99.0 vs 97.7 without them). As known-in-advance decoder marks they cut RMSE by
-   24% (to 74.4). This is the required ablation, run over 3 seeds.
+   24% (to 74.4). This covariate ablation was run over 3 seeds.
 2. **The Autoformer was still throwing most of that signal away.** A gradient-boosting model on the
    per-hour horizon covariates alone, with no sequence model, scored 57.0 on the same weeks where the
    Autoformer scored 69.3. The covariates entered through the embedding and then passed through the
@@ -74,8 +80,7 @@ The leaderboard was used for confirmation only (5 attempts allowed, 3 used).
 Log target (better MAE, unstable RMSE), window-relative normalisation, a 27-model ensemble (0.997
 correlated with attempt 1), refitting on more recent history, winter-weighted loss, square-root target,
 peak-accumulation features, larger decomposition kernel, longer trailing covariate means. Each is in the
-report with numbers. Two of them were submitted anyway and taught the lesson in the handout: one scored
-week cannot separate models that a year of validation rates as close.
+report with numbers. Two variants were also submitted. Their results illustrate why one scored week cannot reliably separate models that a year of validation rates as close.
 
 ### Validation protocol
 
@@ -87,17 +92,24 @@ Chronological, assuming the recovered 24-step cycle is one day:
 | early stop | [26304, 35064) | origins every 24 steps |
 | compare | [35088, 43656) | 51 non-overlapping 168-step blocks, phase-aligned with the hidden week |
 
+Final-stage fitting expands the fit region to [0, 35064) and uses later observed history for early stopping. Those weeks should not also be described as an untouched final-stage test set. The leaderboard evaluates one hidden 168-step horizon.
+
 A second fold one cycle earlier (fold A) scores winter weeks from a different year. Every design claim
 rests on 3 seeds and a paired per-block comparison. Winter-like weeks (the hidden week's season) were
 tracked separately because they are much noisier and predicted the leaderboard: the edge-week RMSE of
 attempt 1 was 81.97, its leaderboard RMSE 81.56.
 
-### Reproduce the final entry
+### Reproduce the recorded forecast
 
-From `Question 2 - Leaderboard/`:
+Clone the repository and create an isolated environment, then enter the forecasting pipeline directory. Training requires its original input files. Model weights are regenerated by training.
 
 ```bash
-pip install "torch>=2.4" numpy pandas matplotlib
+git clone https://github.com/ahmedjawedaj/autoformer-time-series-forecasting.git
+cd autoformer-time-series-forecasting
+python -m venv .venv
+source .venv/bin/activate
+cd "Question 2 - Leaderboard"
+python -m pip install -r requirements.txt
 for s in 2 3 4; do
 python -m pa1q2.train --cov future --d-model 16 --d-ff 32 --mark-kernel 5 \
   --horizon-mark 1 --pad replicate --cov-head 64 --lr 1e-3 --lr-decay 0.8 \
@@ -122,7 +134,7 @@ python -m unittest discover -s tests      # chronological boundaries, submission
 
 ---
 
-## Task 1 at a glance
+## Sensor simulation and generalization
 
 Simulated vibration sensors whose operating pace (period 14 to 36 samples) changes between runs, on top
 of a slow drift. 96-sample context, 48-step horizon. Three implementations were written into the
@@ -181,6 +193,14 @@ Trained weights (`*.pt`) are not committed. Every run's arguments, best epoch, e
 and forecast are in its `.json` record, so the tables in the report can be regenerated without
 retraining.
 
+## Scope and provenance
+
+This is an offline forecasting and simulation research project. The real-world series is anonymized, so its results do not establish electricity-price or grid-demand forecasting performance. Sensor experiments use generated vibration signals.
+
+The work originated in AI651 Deep Learning for Space, Time and Graphs at LUMS, Fall 2026. The original experiment directory names, course harness attribution and report are retained for traceability. Rank 1 refers to the course leaderboard at the time of submission, not a global or current competition ranking.
+
+Reported measurements are documented in the saved experiment records and technical report.
+
 ## References
 
 - Wu, Xu, Wang, Long (2021). Autoformer: Decomposition Transformers with Auto-Correlation for
@@ -189,5 +209,4 @@ retraining.
 - Vaswani et al. (2017). Attention Is All You Need.
 - Zeng et al. (2023). Are Transformers Effective for Time Series Forecasting?
 
-Generative AI tools were used in this assignment. The prompts, outputs and my edits are disclosed in
-the last section of the report.
+Generative AI assistance, including prompts, outputs and author edits, is disclosed in the last section of the report.
